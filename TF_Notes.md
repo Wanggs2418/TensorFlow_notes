@@ -428,7 +428,7 @@ tf.scatter_nd(indices, updates, [8])
 - MNIST/Fashion_MNIST，手写图片数据集，用于图片分类任务
 - IMDB，感情分类任务数据集，用于文本分类任务
 
-`datasets.xxx.load_data()` 函数实现经典数据集自动加载，如 MNIST 数据：
+**`datasets.xxx.load_data()` 函数实现经典数据集自动加载**，如 MNIST 数据：
 
 ```python
 #记载数据集
@@ -588,6 +588,35 @@ def derivative(x):
     return 1 - tanh(x) ** 2
 ```
 
+### 5.2 自动求导
+
+利用 TF 自动求导求出函数在 $x,y$ 的偏导数，并循环更新：
+
+```python
+x=tf.constant([4., 0.])
+#循环优化200次
+for step in range(200):
+    #梯度跟踪
+    with tf.GradientTape() as tape:
+        tape.watch(x) #加入梯度跟踪列表
+        y = himmelnlau(x) #前向传播
+    grads = tape.gradient(y, [x])[0] #反向传播
+    x = x - 0.01 * grads
+```
+
+Gradient 非常消耗显存，每次会运行一次操作，而后释放资源。如果需要运行多次，则需要设置为：
+```python
+# with tf.GradientTape(persistent=True) as tape:
+# 高阶导的实现方式
+with tf.GradientTape() as t1:
+    with tf.GradientTape() as t2:
+        y = x * w +b
+    dy_dw, dy_db = t2.gradient(y, [w, b])
+d2y_dw2 = t1.gradient(dy_dw, w)
+```
+
+
+
 ## 6.keras 高层接口
 
 在 TF 2 版本中，keras 被正式确定为 TF 的高层唯一接口 API，取代了 TF 1 版本中自带的 `tf.layers` 等高层接口。
@@ -611,7 +640,7 @@ out = network(x)
 model = tf.keras.Sequential()
 model.add(tf.keras.layers.Dense(8))
 model.add(tf.keras.layers.Dense(4))
-# 创建网路层参数
+# 创建网络层参数
 model.build(input_shape=(5,5))
 # 通过summary()函数打印网络结构和参数量
 model.summary()
@@ -688,9 +717,643 @@ tf.saved_model.save(model, 'model_savemodel')
 model = tf.saved_model.load('model_savemodel')
 ```
 
-### 6.3 自定义网络
+### 6.3 自定义网络层
 
 在创建自定义**网络中的网络层类时**，需要继承 `layers.Layer` 基类；创建自定义**网络类时**，需要继承自 `keras.Model` 基类，从而能够利用 `Layer/Model` 基类提供的参数管理等功能，同时也可与其他标准网络层类交互使用。
+
+对自定义的网络层，至少需要实现初始化 `__init__` 方法和前向传播逻辑 `call` 方法。**下面实现的为无偏置的全连接层。**
+
+1. **类的初始化工作**：创建继承自 Layer 基类的自定义类。创建初始化方法，并调用父类的初始化函数，此处设置的为全连接层。
+
+   ```python
+   #如MyDense(4,3) 创建输入为4，输出为3
+   class MyDense(layers.Layer):
+       def __init__(self, input_dim, output_dim):
+           super(MyDense, self).__init__()
+           #权值张量 w 创建,设置需要优化
+           self.kernel = self.add_variable('w', [input_dim, output_dim], trainable=True)
+           ed
+   ```
+
+2. **设计自定义类的前向传播逻辑**，设置激活函数为：ReLU
+
+   `training=True` 时执行训练模式，否则执行测试模式，默认为测试模式。对于此处的全连接层，其训练模式和测试模式的逻辑一致，不需要额外的处理。
+
+   ```python
+   	def call(self, inputs, training=None):
+           #此处不考虑偏置b，即b=0
+           #out = np.dot(input, self.kernel)
+           out = inputs @ self.kernel
+           out = tf.nn.relu(out)
+           return out
+   ```
+
+### 6.5 自定义网络
+
+基于上述自定义的”无偏置的全连接层“来实现基于 MNIST 网络模型的创建。
+
+```python
+model = Sequential([MyDense(784, 256),
+                    MyDense(256, 128),
+                    MyDense(128, 64),
+                    MyDense(64, 32),
+                    MyDense(32, 10)
+                   ])
+model.build(input_shape(None, 20*28))
+model.summary()
+```
+
+Sequential 容器适用于按顺序规律传播的网络模型，对于复杂的网络结构，则使用自定义网络更加灵活。
+
+**创建自定义网络类**
+
+```python
+#创建网络类，继承自 Model基类
+class MyModel(keras.Model):
+    def __init__(self):
+        super(MyModel, self).__init__()
+        #完成网络层的创建
+        self.fc1 = MyDense(784, 256)
+        self.fc2 = MyDense(256, 128)
+        self.fc3 = MyDense(128, 64)
+        self.fc4 = MyDense(64, 32)
+        self.fc5 = MyDense(32, 10)
+```
+
+### 6.6 常见模型
+
+如 ResNet，VGG等，可直接从 **keras.applications** 子模块中通过一行代码即可创建并使用，此处以 ResNet 为例：
+
+利用 Keras 加载 ImageNet 预训练好的 ResNet50 网络：
+
+```python
+#去掉最后一层
+resnet = keras.applications.ResNet50(weights='imagenet', include_top=False)
+resnet.summary()
+
+#测试网络的输出
+#out.shape=[b, 7, 7, 2048]
+x = tf.random.normal([4, 224, 224, 3])
+out = resnet(x)
+```
+
+对于具体的任务，需设置自定义输出节点数，如 100 分类，此时需要新建池化层，将特征从 [b, 7, 7, 2048] 降维到 [b, 2048]。
+
+```python
+#新建平均池化层
+global_average_layer = layers.GlobalAveragePooling2D()
+x = tf.random.normal([4, 7, 7, 2048])
+#[4, 7, 7, 2048]->[4, 1, 1, 2048]
+#维度删减后变为[4, 2048]
+out = global_average_layer(x)
+
+#新建全连接层,输出为100个节点
+fc = layers.Dense(100)
+x = tf.random.normal([4, 2048])
+#获得100个类别的概率分布
+out = fc(x)
+```
+
+最终用容器封装成一个新的网络：
+
+```python
+#ResNet50子网络，池化层，全连接层
+mynet = Sequential([resnet, global_average_layer, fc])
+mynet.summary()
+```
+
+**通过 resnet.trainable = False 可选择冻结 ResNet 部分的网络参数，只训练新建的网络层，从而快速高效完成模型的训练。**
+
+具体案例可看：[风格转换.ipynb](ref_files/风格转换.ipynb)
+
+### 6.7 测量工具
+
+网络训练过程中，需要统计准确率，召回率等。Keras 提供相关的测量工具，都在 `keras.metrics` 模块中，专门用于统计训练过程中的指标数据。
+
+测量工具使用的 4 个步骤：
+
+**1.新建测量器**
+
+keras,metrics 提供了多种测量类。如平均值的 Mean 类，统计准确率的 Accuracy 类，统计余弦相似度的 CosineSimilarity 类等。
+
+在前向运算中，会得到每一个 Batch 的平均误差。如果希望得到每个 Step 的平均误差，可选择 Mean 测量器：
+
+**2.写入数据**
+
+通过测量器的 update_state 函数可以写入新的数据
+
+**3.读取统计信息**
+
+采样多次数据后，可选择在需要的地方调用测量器的 result() 函数，来获取统计值。
+
+**4.清除状态**
+
+测量器会统计所有历史记录的数据。在新一轮统计中，需要清除历史状态，通过 reset_states() 即可实现清除状态功能。从而开始下一轮的统计。
+
+```python
+#1.新建平均测量器
+loss_meter = metrics.Mean()
+
+#2.记录采样的数据，通过 flooat()函数将张量转换为普通数值
+#放置每个 Batch 运算结束后，测量器会自动根据采样的数据统计平均值
+loss_meter.update_state(float(loss))
+
+#3.读取统计信息,间隔性统计 loss 均值
+print(step, 'loss', loss_meter.result())
+
+#4.清除状态
+if step % 100 == 0:
+    print(step, 'loss:', loss_meter.result())
+    loss_meter.reset_states()
+```
+
+**准确率测量**
+
+每次前向计算完成后，记录训练准确率数据。Accuracy 类的 update_state 函数的**参数为预测值和真实值**。
+
+```python
+# 新建准确率测量器
+acc_meter = metrics.Accuracy()
+out = model(x)
+#经过argmax后的预测值
+pred = tf.argmax(out, axis=1)
+pred = tf.cast(pred, dtype=tf.int32)
+
+#根据预测值和真实值写入测量器
+acc_meter.update_state(y, pred)
+print(step, 'Evaluate Acc', acc_meter.result().numpy())
+acc_meter.reset_states()
+```
+
+### 6.8 可视化
+
+官方指导：https://tensorflow.google.cn/guide/intro_to_graphs
+
+在网络训练过程中，通过 Web 端远程监控网络的训练进度。TF 提供了一个专门可视化的工具 `TensorBorad`，通过 TF 将监控数据写入到文件系统，并利用 Web 后端监控对应的文件目录，从而实现远程查看网络数据。
+
+**模型端**
+
+创建监控数据的 Summary 类，在需要的时候写入监控数据—误差数据。
+
+```python
+#通过tf.summary.create_file_writer创建监控对象实例
+#创建监控类，并写入 log_dir目录
+summary_writer = tf.summary.create_file_writer(log_dir)
+with summary_wirter.as_default():
+    #当前时间戳 step 上的数据为loss，写入到 train-loss数据库中
+    tf.summary.scalar('train-loss', float(loss), step=step)
+```
+
+图片类型的数据：
+
+```python
+with summary_writer.as_default():
+    tf.summary.scalar('test-acc', float(total_correct/total), step=step)
+```
+
+**浏览器端**
+
+运行程序时，监控数据被写入到指定文件目录中。如果实时远程查看，需借助浏览器和 Web 后端监控的文件目录 path，即可打开 Web 后端监控进程。
+
+- 通过 `cmd` 运行 `tensorboard --logdir files_save_path`，
+
+- 目前 VsCode 也支持直接打开 tensorboard：按 `shift+p` 快捷键，输入 `tensorboard` 启动即可
+
+可视化示例：[可视化示例.py](ref_files/可视化示例.py)
+
+标量监控界面：SCALARS、图片可视化页面 IMAGES等。
+
+[**Visdom**](https://github.com/fossasia/visdom)：除了 TensorBoard 工具外，Facebook 开发的 Visdom 更加丰富，它可以接收 PyTorch 的张量类型数据，但不能接收 TF 张量类型数据，需要转换为 Numpy 数组。
+
+## 7.过拟合
+
+机器学习的主要目的是从训练集上学习到数据的真实模型，从而能够在未见过的测试集上表现良好，即泛化能力。一般来说，测试集和训练集都采样自相同的数据分布，但样本是相互独立的，即称为独立同分布假设 (i.i.d)。
+
+### 7.1 模型的容量
+
+模型的容量，主要指模型拟合复杂函数的能力。一种体现模型容量的指标是模型假设空间的大小，即模型可以表示的函数集的大小。(1 次多项式的模型空间、5 次多项式的模型空间)
+
+过大的假设空间会增加搜索的难度和计算代价，因为较大的假设空间可能包含大量表达能力过强的函数，**能够将训练样本的观测误差也学习进来，从而伤害了模型的泛化能力。**
+
+**如何选择合适容量的学习模型**
+
+VC (Vapnik-Chervonenkis 维度)是一个应用比较广泛的度量函数容量的方法，**可以给机器学习提供一定程度的理论保证，但很少应用到深度学习中。**一部分原因是神经网络过于复杂，很难确定网络结构背后数学模型的 VC 维度。
+
+### 7.2 数据集的划分
+
+- 训练集 (Train set) 用于训练模型参数
+- 测试集 (Test set) 用于测试模型的泛化能力
+- 验证集 (Validation set) **用于选择模型参数**
+
+设计人员可以根据验证集的表现来调整模型的各种超参数的设置，提升模型的泛化能力。但是测试集的表现不能用来反馈模型的调整，否则测试集上的性能将无法代表模型的泛化能力。
+
+为了避免将测试集当作验证集使用，表现出的 “伪泛化性能” **可选择多个测试集**。
+
+**早停 (Early Stopping)**
+
+一般将训练集中的一个 Batch 运算更新一次叫做一个 Step，对训练的所有样本循环一次为 Epoch。**一般建议在几个 Epoch 后进行验证集的运算。**
+
+<img src="image/10.jpg" style="zoom:80%;" />
+
+由于网络实际容量可以随着训练的进行发生改变，因此随着网络训练的进行，可能观测到不同的过拟合、欠拟合状况，选择合适的 Epoch 提前停止训练可以避免过拟合的现象。
+
+具体的，对于分类问题，我们可以记录模型验证的准确率。
+
+### 7.3 正则化
+
+网络模型可以为优化算法提供初始的函数假设空间，但是模型的实际容量可以随着网络参数的优化更新而产生变化。因此通过限制网络参数的稀疏性，可以用来约束网络的实际性能。
+
+一般可通过在损失函数上添加**参数稀疏性惩罚项**实现，而参数的稀疏性约束常通过约束参数的 $L$ 范数实现。此时新的优化目标为：**最小化原来的损失函数，约束网络参数的稀疏性。**二者的权重关系通过参数 $\lambda$ 来实现，较大的 $\lambda$ 意味着网络稀疏性更加重要，反之则网络的训练误差更加重要。
+
+- $L_0$ 正则化：$L_0$ 范数表示非零元素的个数，不可导从而无法进行梯度下降
+- $L_1$ 正则化：也叫做 Lasso Reularization，所有元素的绝对值之和，连续可导
+
+- $L_2$ 正则化：所有元素的平方和，也叫做 Ridge Regularization，连续可导
+
+  ```python
+  w1 = tf.random.normal([4,3])
+  w2 = tf.random.normal([4,2])
+  #L1正则化项
+  loss_reg_L1 = tf.reduce_sum(tf.math.abs(w1)) + tr.reduce_sum(tf.math.abs(w2))
+  #L2正则化
+  loss_reg_L2 = tf.reduce_sum(tf.square(w1)) + tr.reduce_sum(tf.square(w2))
+  ```
+
+根据实验，随着正则化系数 $\lambda$ 的增加，网络对参数稀疏性的惩罚变大，迫使优化算法搜索让网络容量更小的模型。实际训练中，一般从较小的 $\lambda$ 开始，然后逐渐增大。
+
+### 7.4 Dropout
+
+通过随机断开神经网络的连接，减少每次训练时实际参与计算的模型参量。但在测试时，Dropout 会恢复所有的连接。
+
+```python
+#添加 dropout 操作，断开率为0.5
+x = tf.nn.dropout(x, rate=0.5)
+#或当作网络层添加 dropout层，断开率为 0.5
+model.add(layers.Dropout(rate=0.5))
+```
+
+随着 Dropout 层的增加，网络模型训练时的实际容量减少，泛化能力增强。
+
+### 7.5 数据增强
+
+增加数据集也是解决过拟合最重要的途径，但数据是很贵的。因此在有限的数据集上，可通过数据增强技术增加训练的样本数量。**数据增强 (Data Augmentation)** 是指在维持样本标签不变的情况下，根据先验知识改变样本特征，使得新产生的图片也符合或近似符合数据的真实分布。
+
+对于图片数据，进行旋转、缩放、平移、裁剪、改变视角、遮挡局部区域等都不会改变图片的主体标签类别。
+
+TF 提供了常用的图片处理函数，位于 `tf.image` 子模块中：
+
+```python
+# 设置预处理模块
+def preprocess(x, y):
+    """
+    参数：
+    x -- 图片路径
+    y -- 图片的数字编码
+    """
+    x = tf.io.read_file(x)
+    x = tf.image.decode_jpeg(x, channels=3)
+    #图像缩放到 244×244 大小
+    x = tf.image.resize(x, [244, 244])
+```
+
+**旋转**
+
+```python
+#旋转 k 个90度，此处为 180 度
+tf.image.rot90(x, k=2)
+```
+
+**翻转**
+
+沿着水平轴和竖向轴翻转
+
+```python
+#随机水平翻转
+tf.image.random_flip_left_right(x)
+#随机竖直翻转
+tf.image.random_flip_up_down(x)
+```
+
+**随机裁剪**
+
+在原图的左右或上下方向去掉部分边缘像素，保持主体大小不变。实际操作中，一般将图片放大使其略大于原始图片，在裁剪到合适的大小
+
+```python
+x = tf.image.resize(x, [244,244])
+x = tf.image.random_crop(x, [244, 244, 3])
+```
+
+**生成数据**
+
+通过生成模型在原有的数据上进行训练，学习到真实的数据分布，从而利用生成模型获得新的样本。一定程度上也可以提高网络的性能，如条件生成对抗网络 (Conditional GAN,CGAN)，可以生成带标签的样本。
+
+## 8.卷积神经网络
+
+### 8.1 局部相关性
+
+全连接网络参数量过大，尤其是针对图像领域。当网络层的每个输出节点都与所有的输入节点相连接 (如下图)，这种稠密的连接方式是全连接层参数量大、计算代价高的根本原因。因此，全连接层也被称为稠密连接层 (Dense Layer)。
+
+<img src="image/11.jpg" style="zoom:80%;" />
+
+将连接简化，根据重要性选择一部分的输入节点与输出节点连接，而一般衡量重要性的标准有位置或距离。
+
+其中基于距离重要性分布的假设特性称为局部相关性，即只关注距离自己较近的部分节点。在局部相关性的先验下，采取简化的 “局部连接层”，对于窗口 $k × k$ 内的所有像素，使用权值相乘累加的方式提取特征信息，每个输出节点提取对应窗口区域的特征信息。
+
+选中的窗口元素与卷积核对应元素相乘采用**哈达马积 (Hadamard Product) $\odot $**，与矩阵相乘不同。
+
+步长 (strides，s) 控制信息的提取密度。
+
+多通道，单卷积核：
+
+<img src="image/12.jpg" style="zoom:80%;" />
+
+多通道，多卷积核：
+
+<img src="image/13.jpg" style="zoom:80%;" />
+
+### 8.2 卷积层的实现
+
+**自定义权值**
+
+自定义权值，通过 `tf.nn.conv2d` 函数可以方便实现 2D 卷积运算：
+
+```python
+# 2样本，5×5，3通道,[m, h, w, c]
+x = tf.random.normal([2, 5, 5, 3])
+# 4个 3×3 大小的卷积核
+w = tf.random.normal([3, 3, 3, 4])
+# padding=[[0,0],[上，下],[左，右],[0,0]]
+#此处各填充一个单位
+out = tf.nn.conv2d(x, w, strides=1, padding=[[0,0],[1,1],[1,1],[0,0]])
+```
+
+**卷积层类**
+
+通过卷积层类：`layers.Conv2D` 可以直接调用类的实例完成卷积层的前向计算。
+
+**在 TF 中，API 命名具有规律性。首字母大写的一般表示类，全部小写的一般表示函数。使用类的方式会(在创建类时或 build 时)自动创建权值和偏置张量，简单方便，单灵活性差。**
+
+```python
+layer1 = layers.Conv2D(4, kernel_size=(3, 4), strides=(2, 1), padding='SAME')
+# 创建完成后，通过调用实例(的 __call__ 方法)即可完成前向计算
+# 即实例化的同时完成前向计算
+out = layer(x)
+# 返回待优化张量列表
+layer.trainable_variables
+
+# 也可以直接调用访问权值 W 和 b
+layer.kernel
+layer.bias
+```
+
+**池化层**
+
+无学习参数，可有效减低特征图的尺寸，**如窗口尺寸 2×2，步长 2，可实现输出只有输入高宽一半的目的**。
+
+### 8.3 LeNet-5 实战
+
+Yann LeCun 等人提出的用于手写数字和机器打印字符图片识别的神经网络。
+
+<img src="image/14.jpg" style="zoom:80%;" />
+
+<img src="image/15.jpg" style="zoom:80%;" />
+
+流程：
+
+[32, 32, 1] 卷积操作$\rightarrow$ [b, 28, 28, 6] 下采样层(平均池化) $\rightarrow$ [b, 14, 14, 6] 
+
+卷积操作$\rightarrow$ [b, 10, 10, 16]下采样层(平均池化) $\rightarrow$ [b, 5, 5, 16]
+
+ $\rightarrow$ [b, 400] $\rightarrow$ 送到**输出节点**分别为 $120,84$ 的全连接层
+
+为了使其更加容易在深度学习框架上实现，对 LetNet 进行改进：
+
+- 输入变为 [28, 28 ,1]
+- 平均池化改为最大池化
+- 用全连接层替换掉最后的 Gaussian connections 层
+
+![](image/16.jpg)
+
+具体见：[LetNet-5实战.ipynb](code\chapter08\LetNet-5实战.ipynb)
+
+### 8.4 BatchNorm 层
+
+随着网络加深使得网络训练变得不稳定，甚至出现网络长时间不更新甚至不收敛的现象。应对这种情况，15 年 Google 研究人员提出了参数标准化的手段 (Normalize)，设计出了 Batch Normalization (BatchNorm, BN) 层。
+
+BN 层使得网络超参数的设定更加自由，收敛速度更快，性能更好。
+
+**Conv (卷积层) -  BN - ReLU - 池化层一度成为网络模型的标配单元块。**
+
+通过应用可以发现，网络层输入 $x$ 分布相近，且分布在较小的范围内时，更有利于函数的优化。
+
+
+
+**不同的标准化方式**
+
+- BN：在通道 c 上计算每个通道上所有数据的 $\mu_B, \sigma^2_B$
+
+```python
+x = tf.reshape(x, [-1,3])
+mu_b = tf.reduce_mean(x, axis=0)
+```
+
+**BN:[m, c, h*w]，如 6  个样本，3 个数据 [6, 3, 784]。统计每个通道上所有样本的 mean, std。**
+
+- Layer Norm：统计每个样本的所有特征的均值和方差
+- Instance Norm：统计每个样本的每个通道上的特征均值和方差
+- Group Norm：将 c 通道分成若干组，统计每个样本组内的均值和方差
+
+<img src="image/17.jpg" style="zoom:80%;" />
+
+```python
+#默认参数：axis=-1 最后一个轴（如卷积最后一个层为通道层）,center=True,scale=True,trainable=True
+#z=γ×z+β ,center=>β，scale=>γ
+#trainable=True,γ，β是否需要反向传播优化
+net = layers.BatchNormalization()
+
+#训练时和测试时的模式不同
+#测试模式下，training=None,moving_mean,moving_std 以及在训练集训练好的 γ，β都不变
+net(x, training=None)
+```
+
+好处：
+
+- Converge faster (收敛速度更快)
+- Robust，训练更加稳定
+
+
+
+### 8.5 经典卷积网络
+
+**AlexNet**
+
+12 年，AlexNet ：5 个卷积层，3 个全连接层，每个卷积层后添加 Max Pooling 层，降低特征图的维度。
+
+- 采用了 ReLU 激活函数
+- 引入了 Dropout 层
+- 池化层 3×3，s=2
+- 卷积核 7×7
+
+**VGG 系列**
+
+14年，ILSVRC14 亚军牛津大学 VGG 实验室相继提出 VGG 系列模型:
+
+- 卷积核 3×3，参数量少
+- 更小的池化层 2×2，s=2
+
+VGG 系列网络结构：
+
+<img src="image/18.jpg" style="zoom: 67%;" />
+
+**GoogleNet**
+
+14年，ILSVRC14 冠军 Google 提出了 GoogleNet 模型，层数 22 层。
+
+- 采用 1×1 和 3×3 卷积核
+- 参数量小，性能更好
+
+- 采用模块化设计，堆叠 Inception 模块
+
+**CIFAR10**
+
+CIFAR10 图片分辨率仅为 32×32，使得部分主体信息较为模糊。此处根据 VGG13 网路完成图片识别：
+
+- 将 VGG 原来 224×224 的输入调整为 32×32
+- 3 个全连接层维度调整为 [256, 64, 10]，满足 10 分类任务设定
+
+### 8.6 卷积层的变种
+
+卷积核小则提取到的网络特征有限，而增大卷积核则会增加网络的参数量和计算代价，因此需权衡设计。
+
+**空洞卷积 (Dialated/Atrous Convolution)**
+
+在普通卷积的基础上增加 Dilation 参数，用于控制卷积核单元内的距离。参数增大会使得窗口的区域增大，但实际参与运算的点数仍然保持不变。
+
+通过`layers.Conc2D(1, kernel_size=3, strides=1, dilation_rate=2)` 可设置
+
+<img src="image/19.jpg" style="zoom: 69%;" />
+
+<img src="image/20.jpg" style="zoom:80%;" />
+
+**转置卷积(Transposed Convolution/Fractionally Strided Convolution)**
+
+部分资料称作反卷积/Deconvolution，但不能单纯地看作普通卷积的逆过程。二者仅能恢复对方等形状的张量，但具体数值并不相等。
+
+通过在输入之间填充大量的 padding 来实现输出高度大于输入高度，实现**向上采样的目的**。
+
+```python
+tf.nn.conv2d_transpose(out, w, stride, padding='VALID')
+```
+
+<img src="image/21.jpg" style="zoom:70%;" />
+
+普通卷积需要在列、行上循环移动，效率很低。为加速运算，在数学上将卷积核 $W$ 根据 strides 重排为稀疏矩阵 $W'$，通过一次矩阵相乘实现普通卷积运算。此处以 4×4 的 x，s=1； 3×3 ，padding=0 的卷积核为例：
+
+<img src="../Machine%20Learning/img/05.jpg" style="zoom:80%;" />
+
+<img src="../Machine%20Learning/img/04.jpg" style="zoom: 67%;" />
+$$
+O'=W'@X_0'\\
+X_1'=W'^T@O'
+$$
+得到 $O'$ ，可生成与 $X$ 同形状大小的张量，但内容不同，如 $W'^T$ [16, 4] @ $O'$ [4, 1] = $X'$ [16, 1]，reshape 后 $X'$ 变为 4×4。
+
+转置卷积具有放大特征图的功能，广泛应用于 GAN 和 语义分割中。
+
+在 TensorFlow 中，可通过 `tf.nn.conv2d_transpose` 实现转置卷积运算，其卷积核定义为 $[k, k, c_{out},c_{in}]$。
+
+- 当设置 padding = 'VALID' 时，输出表达式为：`o= (i-1)s+k`
+- 当设置 padding = 'SAME' 时，输出表达式为：`o= is`
+
+转置卷积也可以通过 `layers.Conv2DTranspose` 类创建一个转置卷积层：
+
+```python
+layer = layers.Conv2DTranspose(1, kernel_size=3, strides=1, padding='VALID')
+```
+
+**分离卷积**
+
+以深度可分离卷 (Depth-wise Separable Convolution) 积为例。分离卷积层包含两步卷积运算，第一步卷积运算是单个卷积核，第二个卷积运算包含多个卷积核。
+
+同样的输入和输出，采用 Separable Convolution 的参数量约为普通卷积的 1/3。如下图：
+
+输入：[m, h, w, c]；卷积层：[k, k, c, m]
+
+- 普通卷积的参数量为：3×3×3×4=108
+
+- 分离卷积的第一部分参数量：3×3×3×1=27
+
+  第二部分的参数量：1×1×3×4=12
+
+<img src="../Machine%20Learning/img/06.jpg" style="zoom: 67%;" />
+
+分离卷积能实现普通卷积同样的输入输出尺寸变换，但参数量更少。
+
+### 8.7.深度残差网络
+
+15 年，微软亚洲研究院何凯明等发表了基于 Skip Connection 的深度残差网络 ResNet，并提出了 18 层，34 层，101 层，152 层的 ResNet 网络，ResNet-50，ResNet-34 等等。
+
+![](../Machine%20Learning/img/10.jpg)
+
+随着模型的加深，网络的训练变得越来越难，主要是由于梯度弥散和梯度爆炸现象造成的，层数越多，该现象越严重，ResNet 通过在卷积层的输入和输出之间添加 Skip Connection 实现层数回退机制。
+
+为了满足卷积层的输出 $f(x)$ 能够与 $x$ 进行相加运算，要保证二者的 shape 完全一致，否则应进行调整，一般 1×1 卷积居多，主要在于调整输入的通道数。
+
+<img src="../Machine%20Learning/img/07.jpg" style="zoom:80%;" />
+
+**DenseNet** ：将前面所有层的特征图信息通过 SkipConnection 与当前层输出进行聚合，即采用在通道轴 c 上进行拼接操作，聚合特征信息。
+
+输出与前面所有层上的特征信息(输出层)在通道轴上进行拼接，得到聚合后的特征向量。
+
+<img src="../Machine%20Learning/img/08.jpg" style="zoom:67%;" />
+
+<img src="../Machine%20Learning/img/09.jpg" style="zoom:70%;" />
+
+## 9.循环神经网络
+
+### 9.1循环序列表示方法
+
+**时间序列数据：3D 张量 => (samples，timesteps，features)**
+
+Embeding 层是可训练的，它放置在神经网络之前，**完成单词到向量的转换**。
+
+**使用预训练的词向量**
+
+常用的预训练模型有 Word2Vec 和 GloVe 等。GloVe.6B.50d 词汇量为 40 万，每个单词使用长度为 50 的向量表示。
+
+下载地址：https://nlp.stanford.edu/projects/glove/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

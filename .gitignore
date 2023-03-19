@@ -6,6 +6,11 @@ __pycache__/
 # C extensions
 *.so
 
+# ignore files
+source_code/
+eat_pytorch_in_20_days/
+code/logs/
+
 # Distribution / packaging
 .Python
 build/

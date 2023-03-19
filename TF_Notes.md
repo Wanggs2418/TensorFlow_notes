@@ -257,6 +257,455 @@ tf.math.log(a)#log_e(a)
 
 注意：当张量的维度大于 2 时，TF 会选择最后两个维度的矩阵相乘，前面的维度都视作 Batch 维度。
 
+## 3.TF 进阶
+
+### 3.1 合并与分割
+
+**合并**
+
+通过拼接 (Concatenate) 和堆叠 (Stack) 的实现。
+
+ `tf.concat(tensor, axis)` 函数拼接张量，不会产生新维度，仅在现有的维度上进行合并。
+
+理论上，拼接合并操作可在任意维度上进行，唯一的约束都会非合并维度的长度必须一致。
+
+`tf.stack(tensor, axis)`，当 axis ≥ 0 时，在 axis 之前插入；axis < 0 时，在 axis 之后插入。
+
+```python
+#拼接concat
+tf.concat([a,b], axis=0)
+#堆叠stack
+a =tf.random.normal([35,8])
+b =tf.random.normal([35,8])
+tf.stack([a,b], axis=0)
+#结果为 [2,35,8]
+```
+
+**分割**
+
+`tf.split(tensor, num_or_size_splits, axis)`
+
+- `num_or_size_splits` 为单个数值时，表示等长分割的份数；为 List 表示每份的长度
+- `axis` 指定分割的维度索引号
+
+```python
+#x.shape=[10, 35, 8]
+#在第 0 维度上分割成 4 份
+result = tf.split(x, num_or_size_splits=[4,2,2,2], axis=0)
+#len(reslut)=10
+result[0].shape=[4,35,8]
+result[1].shape=[2,35,8]
+result[2].shape=[2,35,8]
+result[3].shape=[2,35,8]
+```
+
+维度按长度为 1 的方式分割：
+
+`tf.unstack(x, axis)`，切割长度固定为 1，只需要指定 axis 即可。
+
+### 3.2 数据统计
+
+**向量范数**
+
+Vector Norm，表征向量长度。TF 中用来表示张量的权值大小、梯度大小。
+
+TF 中，可以通过 `tf.norm(x,ord)` 求解张量的 $L_1,L_2,\infty$ 等范数
+
+- $L_1$ 范数，向量 $x$ 的所有元素绝对值之和 $\displaystyle ||x||_1=\sum_i|x_i|$
+- $L_2$ 范数，向量 $x$ 的所有元素平方和开根号 $||x||_2=\displaystyle \sqrt{\sum_i|x_i|^2}$
+- $\infty$ 范数，向量 $x$ 所有元素绝对值的最大值 $\displaystyle ||x||_{\infty}=\max_i(|x_i|)$
+
+```python
+tf.norm(x,ord=np.inf)
+tf.norm(x,ord=1)
+```
+
+**最值、均值、和**
+
+`tf.reduce_max,tf.reduce_mean,tf.reduce_sum`
+
+不指定 axis 的时候，会自动求解出全局元素相关的值。
+
+`tf.argmax(x,axis)` 和 `tf.argmin(a,axis)` 求解 axis 轴上，x 最大子、最小值所在的索引号。
+
+**张量比较**
+
+`tf.equal(a,b)` 或 `tf.math.equal(a,b)` 比较 2 个张量是否相等。
+
+### 3.3 填充和复制
+
+**填充—padding**
+
+`tf.pad(x,paddings)`
+
+```python
+x=tf.random.normal([4,28,28,1])
+#填充长宽,上下左右填充2个单元
+tf.pad(x,[[0,0],[2,2],[2,2],[0,0]])
+
+#复制,图片数复制一份，高宽复制一份，通道深度不管 
+tf.tile(x,[2,3,3,1])
+```
+
+**复制**
+
+`tf.tile(x,multiples)`
+
+**限幅**
+
+- `tf.maximum(x,a)`，即 $x \in [a, +\infty)$
+- `tf.minimum(x,a)`，即 $x \in (-\infty,a]$
+
+### 3.4 高级操作
+
+1.**`tf.gather(x,index_list,axis)`** ：实现根据索引号收集数据的目的。
+
+非常适合收集索引号不规则的集合，而切片操作的索引号规则。
+
+假设有 4 个班级，每个班级 35 个学生，8 门科目，shape = [4,35,8]，查找每个班级第 1 、4、9 学生的成绩：
+
+```python
+tf.gather(x, [0,3,8], axis=1)
+#索引号乱序排列，收集的数据也是对应的顺序
+tf.gather(x, [3,1,0], axis=0)
+```
+
+2.**`tf.gather_nd(x,indices_list)`**：通过指定每次采样点的多维坐标来实现采样多个点。
+
+如抽查第 2 个班级第 2 个同学的所有科目，第 3 个班级第 3 个同学的所有科目，第 4 个班级第 4 个同学的所有科目，则这 3 个采样点索引坐标为：
+[1,1]，[2,2]，[3,3]
+
+```python
+#x.shape=[4,35,8]
+tf.gather_nd(x,[[1,1],[2,2],[3,3]])
+```
+
+3.**`tf.boolean_mask(x,mask_lsit,axis)`**：给定掩码 (Mask) 方式采样。
+
+掩码采取：mask = [True,Fasle,False,True]，采样第 1 和第 4 个班级的数据，注意掩码的维度需与对应维度长度一致。
+
+**tf.boolean_mask 与 tf.gather 类似，一个通过掩码方式，一个通过索引号采样。**
+
+4.**`tf.where(cond,a,b)`**：可根据 cond 条件的真假从参数 a 或 b 中读取数据。
+
+- conda 为 True，则 a
+- conda 为 False，则 b
+
+当参数 a=b=None 时，即参数 a，b 不指定，`tf.where` 会返回 cond 张量中所有 True 的元素索引坐标。
+
+```python
+#提取张量中所有正数的数据和索引
+x= tf.rand.normal([3,3])
+#获取对应的掩码值
+mask= x > 0
+#提取正数
+int_num = tf.boolean_mask(x, mask)
+#提取正数的索引
+int_indices = tf.where(mask)
+```
+
+**5.`scatter_nd(indices,updates,shape)`**：高效刷新张量的部分数据，而其只能在全为 0 的白板张量上执行刷新操作。
+
+<img src="../deep_learning_notes/image/217.jpg" style="zoom:80%;" />
+
+```python
+#新数据的位置参数
+indices = tf.constant([4],[3],[1],[7])
+#需要写入的数据
+updates = tf.constant([4.4, 3.3, 1.1, 7.7])
+#在长度为 8 的全 0 张量上刷新
+tf.scatter_nd(indices, updates, [8])
+```
+
+**`tf.meshgrid()`**：方便生成二维网格的采样坐标，便于可视化。
+
+### 3.5 经典数据集加载
+
+在 TF 中，`keras.datasets` 模块提供了常用经典数据集的自动下载、管理、加载与转换功能。并提供了 `tf.data.Dataset` 数据集对象，方便实现多线程，预处理，随机打散和批训练等常用数据集功能。
+
+- Boston Housing，波士顿房价趋势数据集，用于回归模型训练和测试
+- CIFAR 10/100，真实图片数据集，用于图片分类任务
+- MNIST/Fashion_MNIST，手写图片数据集，用于图片分类任务
+- IMDB，感情分类任务数据集，用于文本分类任务
+
+`datasets.xxx.load_data()` 函数实现经典数据集自动加载，如 MNIST 数据：
+
+```python
+#记载数据集
+(x,y), (x_test, y_test)=datasets.mnist.load_data()
+print("x：{0},y：{1},x_test：{2},y_test：{3}".format(x.shape, y.shape, x_test.shape, y_test.shape))
+#数据加载后，需要转换为 Dataset对象
+train_db = tf.data.Dataset.from_tensor_slices((x, y))
+```
+
+数据加载并转换为 Dataset 对象后，执行数据集的标准处理步骤
+
+```python
+# 1.随机打散，返回一个 Dataset 新对象
+# Dataset.shuffle(buffer_size),其中buffer_size参数指定缓冲池的大小
+train_db = train_db.shuffle(10000) #随机打散样本，但是不打散样本与标签的映射关系
+
+# 2.批训练，同时计算多个样本
+# 一次并行 128 个样本数据，数量大小根据显存配置
+train_db = train_db.batch(128)
+
+#3.预处理自定义函数
+# 预处理，使得数据集的各式满足模型的输入要求
+def preprocess(x, y):
+    """
+    自定义预处理函数
+    参数：
+    x -- 待处理的数据集,维度[b,28,28]
+    y -- 待处理的数据集,[b]
+
+    返回值：
+    x -- 标准化和扁平化后的 x
+    y -- 转换为 one_hot 向量
+    """
+    x = tf.cast(x, dtype=tf.float32) / 255. #标准化0-1
+    x = tf.reshape(x, [-1, 28*28]) #扁平化
+
+    y = tf.cast(x, dtype=tf.int32)
+    y = tf.one_hot(y, depth=10)
+
+    return x,y
+train_db = train_db.map(preprocess)
+```
+
+## 4.神经网络
+
+### 4.1 全连接层
+
+感知机 (Perception) 模型，感知机为代表的线性模型不能解决亦或 (XOR) 等线性不可分问题。
+
+<img src="image/04.jpg" style="zoom:80%;" />
+
+<img src="image/05.jpg" style="zoom:80%;" />
+
+每个**输出节点与全部的输入节点相连**接，这种网络层称为全连接层 (Fully-connected Layer)，或者稠密连接层 (Dense Layer)。
+
+**张量方式实现**
+
+```python
+o1 = tf.matmul(x, w1)+b1
+o1 = tf.nn.relu(o1)
+```
+
+**层方式的实现**
+
+更高层、使用更方便的层实现方式：`layers.Dense(units,activation)`
+
+```python
+from tensorflow.keras import layers
+x = tf.random.normal([4,28*28])
+#创建全连接层，指定输出节点数和激活函数
+fc =layers.Dense(512, activation=tf.nn.relu)
+#获取权值矩阵
+fc.kernel
+#获取偏置张量
+fc.bias
+#返回待优化参数列表
+fc.trainable_variables
+#返回所有参数列表
+fc.variables
+```
+
+### 4.2 神经网络
+
+神经网络的前向传播过程是：数据张量 (Tensor) 从第一层流动 (Flow) 至输出层的过程，前向传播最后一步完成误差的计算。
+
+误差反向传播 (Backward Propagation，BP) 算法求解梯度信息，同时用 (Gradient Descent，CD) 算法迭代更新参数。
+
+对于回归问题，除了用 MSE 均方误差衡量模型的测试性能，还可以用平均绝对误差 MAE 衡量模型的性能。
+
+## 5.反向传播算法
+
+### 5.1 激活函数的导数
+
+Backpropagation，简称 BP。反向传播算法在 1960 年早期被提出，并未引起重视。直到 1986 年，Geoffrey Hinton 等人在神经网络上应用了反向传播算法。
+
+**sigmoid**
+$$
+\sigma(x)=\frac{1}{1+e^{-x}}\\
+\frac{d}{dx}\sigma(x)=\sigma(1-\sigma)
+$$
+<img src="image/06.jpg" style="zoom:80%;" />
+
+```python
+import numpy as np
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+def derivative(x):
+    return sigmoid(x) * (1-sigmoid(x))
+```
+
+**ReLU**
+$$
+ReLU(x)=\max(0,x)\\
+\frac{d}{dx}ReLU=    
+\left\{
+    \begin{aligned}
+         & 1 & x \ge 0     \\
+         & 0 & x < 0
+    \end{aligned}
+  \right.
+$$
+<img src="image/07.jpg" style="zoom:80%;" />
+
+```python 
+def relu(x):
+    return np.maximum(0,x)
+def derivative(x):
+    d=np.array(x, copy=True)
+    d[x < 0] = 0
+    d[x >= 0] = 1
+    return d
+```
+
+**LeakyReLU**
+
+<img src="image/08.jpg" style="zoom:80%;" />
+
+```python
+def derivate(x, p):
+    dx = np.ones_like(x)
+    dx[x < 0] = p
+    return dx
+```
+
+**Tanh**
+$$
+\tanh=\frac{e^x-e^{-x}}{e^x+e^{-x}}
+$$
+<img src="image/09.jpg" style="zoom:80%;" />
+
+```python
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+def tanh(x):
+    return 2 * sigmoid(2 * x) -1
+def derivative(x):
+    return 1 - tanh(x) ** 2
+```
+
+## 6.keras 高层接口
+
+在 TF 2 版本中，keras 被正式确定为 TF 的高层唯一接口 API，取代了 TF 1 版本中自带的 `tf.layers` 等高层接口。
+
+### 6.1 网络容器
+
+通过 Keras 提供的网络容器 Sequential 将多个网络层封装成 一个大型网络，只需调用网络模型的实例一次即可完成数据从第一层到最后一层的顺序传播运算。
+
+```python
+from tensorflow.keras import layers,Sequential
+network = Sequential([
+    layers.Dense(3, activation=None),
+    layers.ReLU(),
+    layers.Dense(3, activation=None),
+    layers.ReLU()
+])
+x = tf.random.normal([4,3])
+out = network(x)
+
+# 另一种方法
+model = tf.keras.Sequential()
+model.add(tf.keras.layers.Dense(8))
+model.add(tf.keras.layers.Dense(4))
+# 创建网路层参数
+model.build(input_shape=(5,5))
+# 通过summary()函数打印网络结构和参数量
+model.summary()
+```
+
+###  6.2 模型装配与训练
+
+在 keras 中，有 2 个比较特殊的类：keras.Model 和 keras.layers.Layer 类。
+
+- `keras.layers.Layer` 类是网络层的母类，定义了网络层一些常见的功能，如添加权值、管理权值列表等。
+- `keras.Model`  是网络的母类，除了 `Layer` 类的功能外，还有保存模型、加载模型、训练和测试模型等功能，其中 `Sequential` 就是 `Model` 的子类。
+
+**装配**
+
+通过 complie 函数指定使用的优化对象、损失函数类型等：
+
+```python
+from tensorflow.keras import optimizers, losses
+# 采用 Adam 优化器，学习率为 0.01，交叉熵损失函数(包含softmax)，测定指标为准确率
+model.compile(optimizer=optimizers.Adam(learning_rate=0.01),loss=losses.CategoricalCrossentropy(from_logits=True),metrics=['accuracy'])
+```
+
+**训练**
+
+```python
+#指定训练集为 train_db，验证集为 val_db，训练 5 个epochs，每 2 个epoch验证一次
+#返回训练的轨迹信息保存在 his_log 中
+his_log = model.fit(train_db, epochs=5, validation_data=val_db, validation_freq=2)
+```
+
+训练中产生的历史数据可以通过返回值对象取得。通过 compile 和 fit 方式实现的代码非常简洁和高效，大大缩减了开发时间。但注意的是，由于接口非常高层，灵活性也相应的降低。
+
+**预测**
+
+`Model.predict(x)` 方法可以完成模型的预测
+
+```python
+model.predict(x)#模型预测
+# 简单地测试模型的性能，可通过循环测试完 db 数据集上的所有样本
+model.evaluate(db_test)
+```
+
+### 6.2 模型的保存
+
+**张量保存方式**
+
+在拥有网络结构源文件的条件下，直接保存网络张量参数到文件系统上是最轻量级的一种方式。但是它需要使用相同的网络结构才能正确恢复网络状态，**一般在拥有相同网络源文件的情况下使用。**
+
+```python
+# 可将当前的网络参数保存在 path 文件中
+model.save_weights(path)
+# 从参数文件中读取数据并写入当前网络
+model.load_weights(path)
+```
+
+**网络方式**
+
+不需要神经网络的源文件，仅仅需要模型参数文件即可恢复出网络模型。即不用提前创建模型即可从文件中恢复出网络  model 对象。
+
+```python
+#保存模型结构与模型参数到文件
+model.save('model.h5')
+#从文件恢复网络结构与网格参数
+model =keras.models.load_model('model.h5')
+```
+
+**SaveModel 方式**
+
+将模型部署到其他平台上时，采用 TF 提出的 SaveModel 方式更具有平台无关性。
+
+```python
+tf.saved_model.save(model, 'model_savemodel')
+#恢复网络结构与网络参数
+model = tf.saved_model.load('model_savemodel')
+```
+
+### 6.3 自定义网络
+
+在创建自定义**网络中的网络层类时**，需要继承 `layers.Layer` 基类；创建自定义**网络类时**，需要继承自 `keras.Model` 基类，从而能够利用 `Layer/Model` 基类提供的参数管理等功能，同时也可与其他标准网络层类交互使用。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

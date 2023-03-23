@@ -1289,7 +1289,7 @@ layer = layers.Conv2DTranspose(1, kernel_size=3, strides=1, padding='VALID')
 
 分离卷积能实现普通卷积同样的输入输出尺寸变换，但参数量更少。
 
-### 8.7.深度残差网络
+### 8.7 深度残差网络
 
 15 年，微软亚洲研究院何凯明等发表了基于 Skip Connection 的深度残差网络 ResNet，并提出了 18 层，34 层，101 层，152 层的 ResNet 网络，ResNet-50，ResNet-34 等等。
 
@@ -1311,7 +1311,7 @@ layer = layers.Conv2DTranspose(1, kernel_size=3, strides=1, padding='VALID')
 
 ## 9.循环神经网络
 
-### 9.1循环序列表示方法
+### 9.1 循环序列表示方法
 
 **时间序列数据：3D 张量 => (samples，timesteps，features)**
 
@@ -1323,7 +1323,12 @@ Embeding 层是可训练的，它放置在神经网络之前，**完成单词到
 
 下载地址：https://nlp.stanford.edu/projects/glove/
 
+常用的激活函数为：**`tanh 函数`**，可不使用偏置 $b$ 来减少参数量。
 
+### 9.2 RNN 使用方法
+
+-  `SimpleRNN` 表示基础循环神经网络，基于 `Cell` 层实现，内部完成多个时间戳的前向计算；
+- `SimpleRNNCell` 则只完成一个时间戳的前向计算；
 
 
 

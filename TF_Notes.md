@@ -1325,11 +1325,71 @@ Embeding 层是可训练的，它放置在神经网络之前，**完成单词到
 
 常用的激活函数为：**`tanh 函数`**，可不使用偏置 $b$ 来减少参数量。
 
-### 9.2 RNN 使用方法
+### 9.2 RNN 概述
+
+让网络能够按顺序提取词向量的语义信息。用内存机制存储所有序列的语义特征，并将序列顺序与内存变量内容相关联。**具体的实现通过状态张量 $h$，**初始化内存状态 $h_0$ 可为 0，经过 $s$ 个向量的输入后得到网络最终的状态张量 $h_s$ **，其中 $h_s$ 可以较好地代表句子地全局语义信息。**
+$$
+h_t = \sigma(W_{xh}x_t + W_{hh}h_{t-1}+b)
+$$
+和卷积神经网络几十、上百的深度层来比，循环神经网络很容易出现**梯度弥散和梯度爆炸**，目前常见的 RNN 模型层数一般控制在十层以内。
+
+**RNN 使用方法**
 
 -  `SimpleRNN` 表示基础循环神经网络，基于 `Cell` 层实现，内部完成多个时间戳的前向计算；
 - `SimpleRNNCell` 则只完成一个时间戳的前向计算；
 
+### 9.3 爆炸和弥散
+
+原因：在推导 $\displaystyle \frac{\partial L}{\partial W_{hh}}$ 的过程中，$\displaystyle \frac{\partial h_t}{\partial h_i}$ 的梯度包含 $W_{hh}$ 的连乘运算，从而导致循环神经网络难以训练。
+
+$$
+h_t = \sigma(W_{xh}x_t + W_{hh}h_{t-1}+b)\\
+ \frac{\partial h_{t+1}}{\partial h_t}=W_{hh}^T  \sigma'(W_{xh}x_{k+1}+W_{hh}h_k+b)
+$$
+当 $W_{hh}$ 的最大特征值 (Largest Eignvalue) 小于 1 时，多次连乘会使得 $\displaystyle \frac{\partial h_t}{\partial h_i}$ 接近于 0 ，大于 1 时，则会使其呈现指数爆炸式增长。
+
+梯度弥散 (Gradient Vanishing) 和梯度爆炸 (Gradient Exploding)。
+
+**梯度裁剪**
+
+解决梯度爆炸，可通过 (Gradient Clipping) 得方式解决：
+
+- 直接通过张量得数值进行限幅，`tf.clip_by_value(gradient, min, max)`
+- 限制张量得范数实现梯度裁剪，大于最大值时采用 $\displaystyle W' = \frac{W}{||W||_2}·\max$，`tf.clip_by_norm(a, max)`
+- 全局范数裁剪，考虑所有参数梯度的范数，实现等比例缩放，`tf.clip_by_global_norm`
+
+<img src="image/22.jpg" style="zoom:67%;" />
+
+<img src="image/23.jpg" style="zoom:80%;" />
+
+```python
+w1 = tf.random.normal([3,3])
+w2 = tf.random.normal([3,3])
+# 返回两个参数:张量 List 和 global_norm(裁剪前的梯度总范数和), max norm =2
+(ww1, ww2), global_norm = tf.clip_by_global_norm([w1, w2], 2)
+global_norm2 = tf.math.sqrt(tf.norm(ww1)**2+tf.norm(ww2)**2)
+print(global_norm, global_norm2)
+```
+
+在模型训练时，梯度裁剪一般在计算出梯度后，梯度更新之前进行。
+
+```python
+with tf.GradientTape() as tape:
+    logits = model(x)
+    loss = criteon(y, logits)
+# 计算出梯度值
+grads = tape.gradient(loss, model.trainable_variables)
+# after_clip, before_clip
+grads, _ = tf.clip_by_global_norm(grads, 25)
+# 更新参数
+optimizer.apply_gradients(zip(grads, model.trainable_variables))
+```
+
+**梯度弥散**
+
+梯度训练过程中逐渐趋于 0，梯度从最末层逐渐向首层传播，梯度弥散一般可能出现在网络的开始几层。**深度残差神经网络较好地克服了梯度弥散地现象。**另一方面，可以通过增大学习率和减少网络层深度的方式防止梯度弥散现象。
+
+### 9.4 LSTM
 
 
 
@@ -1337,16 +1397,56 @@ Embeding 层是可训练的，它放置在神经网络之前，**完成单词到
 
 
 
+## 10.自编码器
 
+获取样本数据相对容易，但是获取标签较为困难。目前的标注工作多依赖于先验知识 (Prior Knowledge)来完成，容易引入标注人员的主观先验偏差。
 
+### 10.1 原理
 
+监督学习中神经网络的功能：将长度为 $d_{in}$ 的输入特征向量 $x$ 变换到长度为 $d_{out}$ 的输出向量 $0$。**可看作特征降维的过程，即把高输入维度向量 $x$ 变为低维的向量 $o$。**
 
+**特征降维(Dimensionality Reduction)：**在机器学习中有广泛的应用，如文件压缩 (Compression)、数据预处理 (Preprocessing) 等。
 
+**最常见的降维算法为 PCA (Principal components analysis，主成成分分析)：**通过协方差矩阵进行特征分解而得到数据的主成分。本质是一种线性变换，提取特征的能力有限。
 
+**自编码器网络**
 
+标签是自身 $x$：
 
+数据编码 (Encode) 的过程：高维度的 $x$ 变为低维度的隐藏变量 $z$ (Latent Variable)，对应 Encoder 网络。
 
+数据解码 (Decode) 将编码后的输入 $z$ 变为高维度的 $x$，对应 Decoder 网络。
 
+目标：解码器能够完美或近似恢复原来的输入，即 $\bar{x} \approx x $
+
+相较于 PCA 算法，自编码器算法原理非常简单，实现方便且训练稳定。
+
+### 10.2 Fashion MNIST 实践
+
+Fashion MNIST 比 MNIST 图片识别问题稍复杂，设定几乎与 MNIST 完全一样，**用于测试稍复杂的算法性能**
+
+图片大小：28×18；共包含 10 类不同类型的衣服、鞋子、包等灰度图片。
+
+训练集：60000 张；测试集：10000 张；
+
+**自编码器**
+
+- 编码器：3 层全连接层网络，输出节点为 256、128、20，
+- 解码器：3 层全连接网络，，输出节点为 128、256、784
+
+<img src="image/24.jpg" style="zoom:70%;" />
+
+详细文件见：[Fashion MNIST 实践](code\chapter10\自编码器.ipynb)
+
+### 10.3 自编码器的变种
+
+一般而言，自编码器的训练较为稳定，但其损失函数是直接度量重建样本和真实样本**底层特征间**的距离，而不是评价重建样本的逼真程度和多样性等**抽象指标**，因此在某些任务上效果一般，如图片重建容易出现边缘模糊。
+
+为了让自编码器学习到数据的真实分布，产生了一系列的自编码器变种网络。
+
+**Denosing Auto-Encoder**
+
+防止神经网络记忆住输入数据的底层特性，该方法给输入数据添加随机的噪声扰动，如给 $x$ 添加采样高斯分布的噪声 $\epsilon$。
 
 
 

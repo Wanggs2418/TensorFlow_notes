@@ -1446,33 +1446,223 @@ Fashion MNIST 比 MNIST 图片识别问题稍复杂，设定几乎与 MNIST 完�
 
 **Denosing Auto-Encoder**
 
-防止神经网络记忆住输入数据的底层特性，该方法给输入数据添加随机的噪声扰动，如给 $x$ 添加采样高斯分布的噪声 $\epsilon$。
+防止神经网络记忆住输入数据的底层特性，该方法给输入数据添加随机的噪声扰动，如给 $x$ 添加采样自高斯分布的噪声 $\epsilon$。
+
+网络从 $\tilde{x}=x+\epsilon$ 学习到隐藏变量，最后还原出原始的输入 $x$
+
+**Dropout Auto-Encoder**
+
+通过随机断开网络的连接来减少网络的表达能力，防止过拟合，具体实现只需在网络层中插入 Dropout 层即可。
+
+**Adversarial Auto-Encoder**
+
+对抗自编码器利用额外的判别网络来 (Discriminator，D 网络) 判定降维的隐藏变量是否采样自先验分布 $p(z)$。
+
+判别器网络输出为一个属于 [0, 1] 区间的变量，表征隐藏向量是否采样自先验分布 $p(z)$。
+
+<img src="image/25.jpg" style="zoom:70%;" />
+
+### 10.4 VAE-变分编码器
+
+基本的自编码器本质上是学习输入 $x$ 和隐藏变量 $z$ 之间的映射关系，为判别模型 (Discriminative model)。
+
+**(Variational Auto-Encoders，VAE)**
+
+改成生成模型 (generative model)：给定隐藏变量的分布 $P(z)$，如果能够学习到条件概率分布 $P(x|z)$，则通过联合概率分布 $P(x,z)=P(x|z)P(z)$ 进行采样，可生成不同的样本。
+
+**从神经网络的角度看**
+
+VAE 同样具有编码器和解码器两个子网络。
+
+VAE 模型对隐变量 $z$ 的分布有显式地约束，希望隐变量 $z$ 符合预设的先验分布 $P(z)$。因此，还添加了隐变量 $z$ 分布的约束项。
+
+**从概率论角度看**
+
+数据集采样自某个分布 $p(x|z)$，其中 $z$ 为隐藏变量。通常可假设 $p(z)$ 符合已知分布，而后希望学习到**生成概率模型 $p(x|z)$** 。
+
+采用最大似然估计 (Maximum Likelihood Estimation) 方法：好的模型应拥有很大的概率生成真实样本。
+
+**优化的目标为：**
+$$
+\max_{\theta} p(x) = \int p(x|z)p(z)dz
+$$
+由于 $z$ 是连续变量，上述积分无法转换为离散形式，导致其很难直接优化。此时可采用**变分思想**，通过分布 $q_{\phi}(z|x)$ 来逼近 $p(z|x)$ ，其中 KL 散度是衡量分布 $q,p$ 间差距的度量：
+$$
+\min_{\phi} D_{KL}(q_{\phi}(z|x)||p(z|x))\\
+D_{KL}(q||p)=\int_x q(x) \log \frac{q(x)}{p(x)} dx
+$$
+利用条件概率的性质并计算 $q_{\phi}(z|x)，p(z|x)$ 二者的散度：
+$$
+\begin{align}
+D_{KL}(q_{\phi}(z|x)||p(z|x)) &=\int_z q_{\phi}(z|x) \log \frac{q_{\phi}(z|x)p(z)}{p(x,z)} dz\\
+&=\int_z q_{\phi}(z|x) \log \frac{q_{\phi}(z|x)}{p(x,z)} dz + \int_z q_{\phi}(z|x) \log \frac{p(x)}{p(x,z)} dz\\
+&=-L(\phi,\theta)+\log p(x)
+\end{align}
+$$
+考虑到 KL 散度的性质，$D_{KL} \ge 0$，有 $L(\phi,\theta) \le \log p(x)$。优化目标 $L(\phi,\theta)$ 称为 Evidence Lower Bound Objective (ELBO)。目标是最大化 $\log p(x)$ ，可通过最大化下界限 $L(\phi,\theta)$ 来实现。
+
+**最大化 L**
+$$
+\begin{align}
+L(\phi,\theta) &=-\int_z q_{\phi}(z|x) \log \frac{q_{\phi}(z|x)}{p(x,z)} dz=\int_z q_{\phi}(z|x) \log \frac{p(x,z)}{q_{\phi}(z|x)} dz\\
+&=\int_z q_{\phi}(z|x) \log \frac{p(z)p(x|z)}{q_{\phi}(z|x)} dz\\
+&=\int_z q_{\phi}(z|x) \log \frac{p(z)}{q_{\phi}(z|x)} dz +\int_z q_{\phi}(z|x) \log p(x|z) dz \\
+&=-\int_z q_{\phi}(z|x) \log \frac{q_{\phi}(z|x)}{p(z)} dz +E_{z \sim q}[\log p(x|z)]\\
+&=-D_{KL}(q_{\phi}(z|x)||p(z))+E_{z \sim q}[\log p(x|z)]
+\end{align}
+$$
+总的流程可表示为：
+$$
+\max_{\theta} p(x)=>\min_{\phi} D_{KL}(q_{\phi}(z|x)||p(z|x))=>\\
+\max_{\phi}L(\phi,\theta)=>\min D_{KL}(q_{\phi}(z|x)||p(z)), \quad \max E_{z \sim q}[\log p(x|z)]
+$$
+
+- 可用编码器网络参数化 $q_{\phi}(z|x)$
+- 编码器网络参数化 $p(x|z)$
+- 计算解码器输出分布 $q_{\phi}(z|x)$ 与先验分布 $p(z)$ 之间的 KL 散度
+- 计算编码器的似然概率 $\log p(x|z)$ 
+
+**问题**
+
+编码器输出正态分布的均值 $\mu$ 和方差 $\sigma^2$，解码器的采样自该分布，**由于采样操作的存在，导致梯度不连续，无法通过梯度下降算法训练网络。**
+
+解决方法：Reparameterization Trick，通过 $z=\mu + \sigma \odot \epsilon$ 的方式采样，保证梯度传播的连续性。
+
+<img src="image/27.jpg" style="zoom:67%;" />
+
+**添加到 VAE 模型如下：**
+
+输入 $x$ 通过编码器网络得到隐变量 $z$ 的均值与方差，通过 Reparameterization Trick 方式采样获得隐变量 $z$，并送入解码器网络，获得分布。
+
+<img src="image/26.jpg" style="zoom:80%;" />
+
+**实践**
+
+同样基于 Fashion MNIST 数据集，输入图片向量，经过 3 个全连接层后得到隐向量 $z$ 的均值 $\mu$ 和方差 $\sigma$，用输出节点为 20  的全连接层 FC2 和 FC3 表示。
+
+**编码器**
+
+- 3 个全连接层 FC1、FC2、FC3
+- FC2 的 20 个输出节点表示 20 个特征分布的均值向量 $\mu$；
+- FC3 的 20 个输出节点表示 20 个特征分布取 log 后的方差向量 $\sigma$；
+- 通过 Reparameterization Trick 采样获得长度为 20 的隐向量 $z$；
+
+<img src="image/28.jpg" style="zoom:80%;" />
+
+**解码器**
+
+通过 FC4、FC5 重建图片。也可以单独使用解码器生成样本，**通过从先验分布 $p(z)$ 中直接采样获得隐变量 $z$。**
+
+```python
+# 疑难点：
+# 仅仅对axis=0，行进行平均,损失值更大，可能使得收敛更快
+loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=x, logits=logits) 
+loss = tf.reduce_sum(loss) / x.shape[0]
+
+# KL(p,q), p-N(mu, var); q-N(0, 1);
+kl_div = -0.5 * (log_var + 1 - mu**2 - tf.exp(log_var))
+kl_div = tf.reduce_sum(kl_div) / x.shape[0]
+
+losses = loss + 1. * kl_div
+```
+
+[VAE 实践](code\chapter10\变分编码器VAE.ipynb)
+
+## 11. GAN
+
+生成对抗网络 (Generative Adversarial Network，GAN)。2014 年 Ian Goodfellow 提出 GAN，使得生成图片的效果更进一步。
+
+### 11.1 GAN 原理
+
+通过博弈学习，相互提高，最终到达一个平衡点。GAN 设置了两个子网络：
+
+- 生成样本的生成器 G
+- 负责鉴别真伪的鉴别器 D
+
+鉴别器 D 观察真实样本和生成器 G 产生的样本之间的区别，学习如何辨别真假。其中真实的样本为真，生成的样本为假。同时生成器 G 也在学习，通过优化自身的参数，尝试使得生成的样本在鉴别器 D 中判别为真。最终的目标是生成器 G 生成的样本非常逼真，使得鉴别器 D 难以区分真假。
+
+**1.网络结构**
+
+GAN 包含两个子网路：生成网络 (Generator，G) 和判别网络 (Discriminator，D)。
+
+- 生成网络 G 样本的真实分布
+- 判别网络 D 负责将生成网络采样的样本与真实样本区分开
+
+**生成网络 G：**与 Decoder 功能类似，G 从先验分布 $p_z$ 中采样隐藏变量 $z$。通过 G 参数化的 $p_g(x|z)$ 分布，获得生成样本 $x$，其中隐藏变量 $z$ 的先验分布 $p_z$ 假设为某个已知分布。
+
+**将隐变量 $z$ 通过多层转置卷积层神经网络转换为样本向量 $x_f$**，(注：$f$ 表示 Fake samples)
 
 
 
+**判别网络 D：**
 
+- 输入：由真实样本 $x_r$ 和生成样本 $x_f$ 组成的 $x$ 训练集，所有 $x_r$ 标签设置为真 1，$x_f$ 标签设置为假 0。
+- 输出：$x$ 为真实样本呢的概率 $p(x 为真|x)$。
+- 通过最小化判别网络 $D$ 的预测值与标签之间的误差来优化判别网络参数。
 
+**2.网络的训练**
 
+G 和 D 优化目标不一样，因此应分别设置损失函数。
 
+**判别网络 D 的优化目标**
 
+更好地区分真样本 $x_r$ 和假样本 $x_f$。以图片生成来说，使得预测的概率逐渐趋近于真实的情况，**即最小化图片的预测值和真实值之间的交叉熵损失函数**。
+$$
+\min_{\theta} L = CE(D_{\theta}(x_r),y_r \quad D_{\theta}(x_f),y_f)
+$$
+其中：$CE$ 为交叉熵损失函数 `CrossEntropy`； $D_{\theta}(x_r)$ 为真实样本 $x_r$ 在 D 中的输出，$y_r=1(真)$。
 
+二分类问题的交叉熵损失函数定义为：
+$$
+L = -(y \log y'+(1-y)\log(1-y')) \\
+$$
+D 网路中：
+$$
+\begin{align}
+L = &-\sum_{x_r \sim p_r} \left[ y_r \log D_{\theta}(x_r)+(1-y_r) \log (1-D_{\theta}(x_r)) \right]\\ \notag
+&-\sum_{x_f \sim p_f} \left[ y_f \log D_{\theta}(x_f)+(1-y_f) \log (1-D_{\theta}(x_f)) \right]\\ 
+=&-\sum_{x_r \sim p_r} \log 
 
+D_{\theta}(x_r) -\sum_{x_f \sim p_g} \log(1- D_{\theta}(x_f))\\ 
+\end{align}
+$$
+转换为最值并写成期望形式：
+$$
+\theta^* = \arg \min_{\theta}-\sum_{x_r \sim p_r} \log D_{\theta}(x_r) -\sum_{x_f \sim p_g} \log(1- D_{\theta}(x_f))\\
+\theta^* = \arg \max_{\theta}E_{x_r \sim p_r} \log D_{\theta}(x_r)+E_{x_f \sim p_g} \log(1- D_{\theta}(x_f))
+$$
+**生成网路的优化目标**
 
+$x_f = G(z)$ ，优化目标是使得输出越来越接近真实标签，即 $D(G(z))$ 的输出逼近于 1 ，**即最小化 $D(G(z))$ 和 1 之间的交叉熵损失函数：**
+$$
+\begin{align}
+\min_{\phi} L = & CE(D(G(z)), 1) \\ \notag
+=&-1×\log D(G_{\phi}(z))-(1-1)×\log (1-D(G_{\phi}(z))) \\
+=&-\log D(G_{\phi}(z))
+\end{align}
+$$
+写成期望形式并转换为最值形式：
+$$
+\phi^* = \arg \max_{\phi}E_{z \sim p_z} \log D(G_{\phi}(z)) \\
+\phi^* = \arg \min_{\phi}E_{z \sim p_z} \log(1- D(G_{\phi}(z)))
+$$
+其中 $\phi$ 是网络 G 的参数集，可通过梯度下降算法进行优化。
 
+**综合损失函数**
 
+将 G 和 D 网络的损失函数合并：
+$$
+\begin{align}
+\min_{\phi}\max_{\theta} L(D,G)=&E_{x_r \sim p_r} \log D_{\theta}(x_r)+E_{x_f \sim p_g} \log(1- D_{\theta}(x_f))\\
+=&E_{x_r \sim p_r} \log D_{\theta}(x_r)+E_{z \sim p_z} \log(1- D_{\theta}(G_{\phi}(z)))
+\end{align}
+$$
 
+### 11.2 DCGAN 实践
 
+判别器 D 用普通卷积层实现；生成器 G 用转置卷积层实现。
 
-
-
-
-
-
-
-
-
-
-
+![](image/29.jpg)
 
 
 

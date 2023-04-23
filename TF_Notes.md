@@ -1616,7 +1616,7 @@ $$
 $$
 L = -(y \log y'+(1-y)\log(1-y')) \\
 $$
-D 网路中：
+D 网络中：
 $$
 \begin{align}
 L = &-\sum_{x_r \sim p_r} \left[ y_r \log D_{\theta}(x_r)+(1-y_r) \log (1-D_{\theta}(x_r)) \right]\\ \notag
@@ -1668,7 +1668,7 @@ $$
 
 **数据集说明**
 
-使用动漫头像[数据集](https://www.kaggle.com/datasets/soumikrakshit/anime-faces?resource=download)，共 21551 张图片，无标注信息。图片都已经经过裁剪、对齐等并统一缩放到 96×96 大小。
+使用动漫头像 [数据集](https://www.kaggle.com/datasets/soumikrakshit/anime-faces?resource=download)，共 21551 张图片，无标注信息。图片都已经经过裁剪、对齐等并统一缩放到 96×96 大小。
 
 1.生成网络
 
@@ -1677,6 +1677,219 @@ $$
 - 将长度为 100 的隐藏变量 $z$ 变换为 [b, 1, 1, 100]
 - 依次通过转置卷积层，放大高宽维度，减少通道维度，最后高宽为 64×64，通道为 3
 - 每个卷积层中插入 BN 层提高训练稳定性，卷积层选择不使用偏置向量
+
+2.判别器 d 和生成器 g 训练
+
+- 每训练 5 次判别器，训练 1 次生成器
+
+
+
+具体实例：[DCGAN_案例实践](code\chapter11\DCGAN案例实践.ipynb)
+
+
+
+### 11.3 GAN 的改进
+
+[GAN 论文的相关集合](https://github.com/hindupuravinash/the-gan-zoo)
+
+14 年提出 GAN，而原始的 GAN 模型与 VAE 差别并不明显。
+
+**DCGAN**
+
+*Deep Convolution Generative Adversarial Networks*，最初的 GAN 基于全连接层实现生成器 G 和判别器 D 网络，并不适用用图片训练。DCGAN 则提出使用转置卷积实现 G ，而普通卷积网络实现 D，同时 DCGAN 作者还提出一系列经验性的训练技巧来稳定网络的训练。
+
+**InfoGAN**
+
+希望让模型学习到图片分离的 (Disentangled) 可解释特征的表示方法，从而可通过人为控制隐变量来生成指定内容的样本。如将人脸图片中的发型、眼镜佩戴情况、面部表情等特征分开，可生成指定形态的人脸图片。
+
+尝试用无监督的方式去学习输入 $x$ 到可解释隐变量 $z$ 的表示方法，即希望  $z$ 能够对应到数据的语义特征。
+
+**分离的可解释特征一个最大好处是：让神经网络的可解释性变强。**如果 $z$ 包含一些分离的可解释数据，则我们可以通过仅仅改变一个位置上的特征来获取不同语义的生成数据。
+
+<img src="image/31.jpg" style="zoom:80%;" />
+
+戴眼镜的男士(隐向量) - 不带眼镜男士(隐向量) + 不带眼镜的女士(隐变量) = 带眼镜的女士(隐变量)
+
+**WGAN**
+
+GAN 训练问题容易出现不收敛和模式崩塌现象。原始的 GAN 使用 JS 散度进行度量存在着缺陷，因此 WGAN 使用 Wasserstein 距离解决该问题。在 WGAN-GP 中通过添加梯度惩罚项，从工程层面很好地实现了 WGAN 算法，并验证了 WGAN 算法的稳定性。
+
+**Equal GAN**
+
+GAN 变种已经具有很多种，但是没有证据表明测试的 GAN 变种算法一直持续比初始 GAN 要好。Google Brain 的研究人员发现，就目前所有的 GAN 变种，在足够计算机资源的情况下，都能达到相似的性能 (FID 分数)。
+
+**Self-Attention GAN**
+
+Attention 机制在 NLP 中已经应用非常广泛，SAGAN 借鉴 Attention 机制，提出基于自注意力机制的变种，其把图片逼真度的指标：Inception score 从 36.8 提升到 52.52，Frechet Inception distance 从 27.62 降到 18.65。
+
+**BigGAN**
+
+在 SAGAN 的基础上，BigGAN 将 GAN 训练扩展到大规模上去，同时利用正交正则化等技巧保证训练过程的稳定性。基于大数据和打算力的益处，图片生成效果的细节更加逼真。
+
+### 11.4 纳什均衡
+
+通过博弈训练学习，G 和 D 会达到什么样的平衡状态：
+
+- 固定 G，D 收敛的最优状态 $D^*$ 是什么
+- 在 $D$ 达到最优状态 $D^*$ 后，此时 $G$ 会收敛到什么状态
+
+**D 收敛到最优状态**
+
+前面的 GAN 损失函数：
+$$
+\begin{align}
+\min_{\phi}\max_{\theta} L(D,G)=&E_{x_r \sim p_r} \log D_{\theta}(x_r)+E_{x_f \sim p_g} \log(1- D_{\theta}(x_f))\\
+=&E_{x_r \sim p_r} \log D_{\theta}(x_r)+E_{z \sim p_z} \log(1- D_{\theta}(G_{\phi}(z)))
+\end{align}
+$$
+对于判别器 D，其优化目标是最大化 $L(D,G)$ 函数，即使得 $f(x)$ 取得最大值：
+$$
+f(x)=A \log x + B \log (1-x)
+$$
+可得极值点：
+$$
+x = \frac{A}{A+B}\\
+D_{\theta}=D^* = \frac{p_r(x)}{p_r(x)+p_g(x)}
+$$
+即 $D_{\theta}$ 的最优状态是 $D^*$。
+
+**生成器 G 的状态**
+
+引入另一个**分布距离度量标准**：JS 散度
+$$
+D_{KL}(p||q)=\int_x p(x)\log \frac{p(x)}{q(x)} dx\\
+D_{JS}(p||q)=\frac{1}{2}D_{KL}(p||\frac{p+q}{2})+\frac{1}{2}D_{KL}(q||\frac{p+q}{2})
+$$
+JS 散度克服了 KL 散度不对称的缺陷。当 D 优化到最优 $D^*$ 时，计算此时 $p_r,p_g$ 的 JS 散度：
+$$
+\begin{align}
+D_{JS}(p_r||p_g)=&\frac{1}{2}D_{KL}(p_r||\frac{p_r+p_g}{2})+\frac{1}{2}D_{KL}(p_g||\frac{p_r+p_g}{2}) \notag \\
+=&\frac{1}{2} \left(\int_x p_r\log \frac{2p_r}{p_r + p_g} dx+\int_x p_g\log \frac{2p_g}{p_r + p_g} dx\right) \notag \\
+=&\log 2 + \frac{1}{2} \left(\int_x p_r\log \frac{p_r}{p_r + p_g} dx+\int_x p_g\log \frac{p_g}{p_r + p_g} dx\right)
+\end{align}
+$$
+经过推导，判别网络达到最优化 $D^*$ 时，损失函数与 $p_r,p_g$ 的 JS 散度的关系为：
+$$
+\begin{align}
+D^* = &\frac{p_r}{p_r+p_g}\\
+L(G,D^*)= &\int_x \left[ p_r \log(D^*) + p_g \log(1-D^*) \right]dx \notag\\
+=&  \int_x p_r \log \frac{p_r}{p_r+p_g} dx + \int_x p_g \log \frac{p_g}{p_r+p_g} dx\\
+L(G,D^*)=&2D_{JS}(p_r||p_g)-2 \log 2
+\end{align}
+$$
+而生成网络的训练目标是使得 $L(G,D)$ 最小，考虑到 $D_{JS}(p_r||p_g) \ge 0$ 的性质，若使得 $L(G,D^*)$ 最小，则应有 $ D_{JS}(p_r||p_g)=0$，此时有：
+$$
+L(G^*,D^*)=-2 \log 2
+$$
+此时 $p_r=p_g$，$D^*=0.5$。
+
+**纳什均衡点**
+
+生成网络最终收敛到真实分布：
+
+- 即 $p_r=p_g$
+- $D^*=0.5$
+- $L(G^*,D^*)=-2 \log 2$
+
+### 11.5 GAN 训练难题
+
+前面理论分析已经证明了 GAN 是能够学习到数据的真实分布。但是在实际训练中，GAN 模型对超参数敏感，容易出现模式崩塌现象。
+
+**超参数敏感**
+
+网络的**结构设定，学习率，初始化状态等超参数**对网络训练过程影响较大。微量的超参数调整将可能导致网络训练结果的截然不同。
+
+DCGAN 作者提出一些经验性方法：如不使用 Pooling 层，多使用 Batch Normalization 层，不使用全连接层，G 网络激活函数使用 ReLU ，最后一层使用 tanh 等；D 网络激活函数使用 LeakyLeLU等。**但是并未在理论层面解释这样做的理由。**
+
+**模式崩塌**
+
+Mode Collapse，模型生成的样本单一，多样性差的现象。未对样本的多样性进行显示约束，导致生成模型可能倾向于生成真实分布的部分区间中的少量高质量样本，以获得较高的概率值。
+
+### 11.6 WGAN
+
+WGAN 针对 GAN 训练难题，给出了一种解决方案。其从理论层面分析了 GAN 训练不稳定的原因，并提出了有效的解决方法。
+
+导致 GAN 训练不稳定的原因：JS 散度在不重叠的分布 p 和 q 上的梯度曲面恒为 0，导致了 GAN 训练出现梯度弥散的现象，参数得不到更新，网络无法收敛。
+
+JS 散度在分布 p，q 不重叠时无法平滑地衡量分布之间的距离，从而导致梯度弥散。因此需要使用一种更好的分布距离衡量标准，使得 p，q 不重叠也能平滑反映分布间的真实距离变化。
+
+**EM 距离**
+
+Wasserstein 距离，或者称为推土机距离 (Earth-Mover Distance，EM)，用以表示从一个分布变换到另一个分布的最小代价：
+$$
+W(p,q)=\inf_{\gamma \sim \prod(p,q)} E_{(x,y)\sim \gamma}[||x-y||]
+$$
+其中 $\prod(p,q)$ 表示分布 $p,q$ 组合起来所有可能的联合分布的集合，$\inf$ 表示集合的上确界。
+
+考虑到不可能遍历所有的联合分布计算距离 $||x-y||$ 的期望 $E_{(x,y)\sim \gamma}[||x-y||]$，因此作者基于 Kantorovich-Rubinstein 对偶性将直接求 $W(p_r, p_g)$ 转换为：
+$$
+W(p_r,p_g)=\frac{1}{K} \sup_{||f||_L \le K}E_{x \sim p_r}[f(x)]-E_{x \sim p_g}[f(x)]
+$$
+其中 $\sup$ 为上确界，$||f||_L \le K$ 表示函数满足 $K$ 阶 Lispschitz （利普希茨）连续性：
+$$
+|f(x_1)-f(x_2)| \le K \cdot |x_1-x_2|
+$$
+使用判别网络 $D_{\theta}(x)$ 参数化 $f(x)$ 函数，在 $D_{\theta}$ 满足 1 阶 Lipschitz 约束的条件下，$K=1$。
+$$
+W(p_r,p_g) = \sup_{||D_{\theta}||_L \le 1} E_{x \sim p_r}[D_{\theta}(x)]-E_{x \sim p_g}[D_{\theta}(x)]
+$$
+**WGAN-GP**
+
+采用梯度惩罚项 (Gradient Penalty) 方法迫使判别网络 D 满足1 阶 Lipschitz 约束的条件，同时作者也发现，将梯度值约束在 1 周围时工程效果更好。其中梯度惩罚项定义为：
+$$
+GP \triangleq E_{\hat{x} \sim P_{\hat{x}}} [(||\triangledown_{\hat{x}}D(\hat{x})||_2-1)^2]
+$$
+**WGAN 判别器 D 训练目标为：**
+$$
+\max_{\theta}L(G,D)=E_{x_r \sim p_r}[D_{\theta}(x)]-E_{x_f \sim p_g}[D_{\theta}(x)]-\lambda E_{\hat{x} \sim P_{\hat{x}}} [(||\triangledown_{\hat{x}}D(\hat{x})||_2-1)^2]
+$$
+其中 $\hat{x}$ 来自于 $x_r$ 与 $x_f$ 的线性差值：
+$$
+\hat{x}=tx_r+(1-t)x_f,t\in [0,1]
+$$
+判别器 D 的目标是使得 EM 距离尽可能大，GP 惩罚项接近于 0 。
+
+**WGAN 生成器 G 训练目标为：**
+$$
+\min_{\phi}L(G,D)=E_{x_r \sim p_r}[D(x_r)]-E_{x_f \sim p_g}[D(x_f)]
+$$
+考虑到 $E_{x_r \sim p_r}[D(x_r)]$ 与生成器无关，进一步简写为：
+$$
+\min_{\phi}L(G,D)=-E_{x_f \sim p_g}[D(x_f)]=-E_{z \sim p_z}[D(G(z))]
+$$
+**总：**原来的判别器作为二分网络，需要添加 Sigmoid 函数获得类别概率；而 WGAN 中的判别器作为 EM 距离的度量网络，不需要 Sigmoid 函数。在误差函数计算时，WGAN 也有 $\log$ 函数的存在。同时在训练 WGAN 时，推荐使用不带动量的优化器：RMSProp 或 SGD 等。
+
+**要注意的是，WGAN 并不一定能提升模型的生成效果，仅仅是保证模型训练的稳定性。**
+
+[WGAN 实践训练](code\chapter11\DCGAN案例实践.ipynb)
+
+
+
+## 12. 强化学习
+
+除了有监督学习，无监督学习外的另一个分支，利用智能体与环境交互，从而学习到良好的结果。强化学习的动作无明确的标准信息，只有来自环境反馈的奖励信息，具有一定的滞后性。
+
+强化学习算法的设计与传统的监督学习不太一样，包含大量的新的数学公式推导。
+
+### 12.1 Gym 平台
+
+强化学习中可直接通过机器人与真实环境交互，通过传感器获得更新后的环境状态与奖励。一般先在虚拟软件环境中测试算法，再迁移到真实环境中去。
+
+[Gym 官方文档](https://gymnasium.farama.org/)
+
+Gymnasium
+
+创建虚拟环境并安装：
+
+```shell
+conda create -p=E:\pythonwork\Jupyter\gymlab python=3.8
+conda activate E:\pythonwork\Jupyter\gymlab
+conda install jupyter
+```
+
+
+
+
 
 
 

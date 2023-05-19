@@ -1871,21 +1871,137 @@ $$
 
 强化学习算法的设计与传统的监督学习不太一样，包含大量的新的数学公式推导。
 
-### 12.1 Gym 平台
+### 12.1 Gymnasium 平台
 
 强化学习中可直接通过机器人与真实环境交互，通过传感器获得更新后的环境状态与奖励。一般先在虚拟软件环境中测试算法，再迁移到真实环境中去。
 
-[Gym 官方文档](https://gymnasium.farama.org/)
+[Gymnasium 官方文档](https://gymnasium.farama.org/)
 
-Gymnasium
+基于 WSL 的 Gymnasium 的创建与安装可见：[WSL_intro](https://github.com/Wanggs2418/Linux_intro/blob/main/01.WLS_intro.md)
 
-创建虚拟环境并安装：
+```bash
+pip install tensorflow-cpu==2.5.0 -i  https://pypi.douban.com/simple/
+# 更新pip
+python -m pip install --upgrade pip
+# 一次性全部安装
+pip install "gymnasium[all]"  #安装所有的依赖,容易出错
 
-```shell
-conda create -p=E:\pythonwork\Jupyter\gymlab python=3.8
-conda activate E:\pythonwork\Jupyter\gymlab
-conda install jupyter
+# 分别安装
+pip install gymnasium[atari]
+pip install gymnasium[classic-control]
+pip install gymnasium[box2d]
 ```
+
+测试案例 (基于 gymnasium0.28.1)：
+
+```python
+#pip install gymnasium[classic-control]
+import gymnasium as gym
+env = gym.make("CartPole-v1", render_mode="human")
+
+observation, info = env.reset(seed=42)
+for _ in range(1000):
+    env.render()
+    action = env.action_space.sample()
+    observation, reward, terminated, truncated, info = env.step(action)
+
+    if terminated or truncated:
+        observation, info = env.reset()
+env.close()
+```
+
+一般来说：Gym 环境中创建游戏包括 5 个步骤：
+
+1. 创建游戏，通过 `gym.make(name)` 创建指定名称的游戏，并返回对象 env
+2. 复位游戏状态，`env.reset()` 恢复游戏状态同时返回游戏的初始状态 observation
+3. 显示游戏画面，`env.render()` 显示每个时间戳的游戏画面，训练时考虑代价可不引入
+4. 与游戏环境交互，`env.step(action)` 执行 action ，返回新的状态 observation，当前的奖励 reward，游戏terminated, truncated 以及额外的信息载体 info; (旧版的 done 参数在 OpenAI Gym v26 之后已经弃用)。
+5. 销毁游戏，`env.close()`
+
+### 12.2 强化学习问题
+
+强化学习中的判断和决策叫做策略 (policy)，策略的输入状态为 s，输出为某个具体的动作 a 或其分布 $\pi_{\theta}(a|s)$，交互时，选择概率最大的动作作为决策结果，随后作用于环境中，得到新的状态 $s_{t+1}$ 和奖励 $r_t$。
+
+强化学习与传统的有监督学习不相同，体现在强化学习在每个时间戳 t 上的动作无好坏标准，每个状态很难定义一个人类的动作，策略的优化目标是**最大化总回报的期望值**。
+
+强化学习算法对参数及其敏感，实现过程需要精细挑选参数。
+
+**RL 过程**
+
+智能体感知环境的状态而产生决策动作；环境则从某个初始状态开始，接受智能体的动作动态而改变自身的状态，给出奖励信号。
+
+- 状态 s，环境特征
+- 动作 a，采取的行为
+- 策略 $\pi(a|s)$ 接受 s 输出 $p(a|s)$
+  - 随机性策略 (Stochastic Policy)
+  - 确定性策略 (Deterministic Policy)
+- 奖励 r(s, a)，延迟性
+- **状态转移概率 $p(s'|s,a)$**，环境模型状态的变化规律，环境收到动作 a 后从一个状态 s 变为另一个状态 $s'$ 的概率
+
+![](image/32.jpg)
+
+### 12.3 马尔可夫决策过程
+
+智能体和环境的**一次交换过程**叫做轨迹 (Trajectory)，一次交互过程代表一个回合 (Episode)，一般指从游戏开始到游戏结束的过程 ($s_T$ 表示游戏终止状态)，$T$ 表示回合的时间戳或步数，对于不同的游戏 $T$ 的取值也不同，有明确的结束状态和无明确结束状态的游戏。
+$$
+\tau = s_1,a_1,r_1,s_2,a_2,r_2,\cdots, s_T
+$$
+在状态 $s_t$ 后出现状态 $s_{t+1}$ 的概率 $P(s_{t+1}|s_1,s_2,...,s_t)$ 的计算按前面的方法需要考虑前面 $t$ 个状态，非常复杂。通过简化计算，假设只受前一个的影响，即 $P(s_{t+1}|s_t)$ 。
+
+**马尔可夫性 (Markov Property)**：下一个状态只与当前状态相关，具有马尔可夫性的序列则叫做马尔可夫过程。
+
+**马尔可夫决策过程 (MDP)**：状态和动作的有序序列 $s_1,a_1,...,s_t,a_t$。
+
+- 观察到环境的部分状态称为部分马尔可夫决策过程 (POMDP)
+
+![](image/33.jpg)
+
+如果知道环境模型，则称为基于模型的强化学习方法 (Model-based Reinforcement Learning)，而现实世界中环境往往复杂且未知，此时称为模型无关的强化学习 (Model-free Reinforcement Learning)。
+
+**目标函数**
+
+智能体与环境交互，会得到一个激励信号 $r_t=r(s_t,a_t)$，一次交互轨迹的累计奖励为总回报 (Return)：
+$$
+R(\tau) = \sum_{t=1}^{T-1}r_t
+$$
+为权衡近期奖励和长期奖励的重要性，多使用随时间衰减的折扣回报 (Discount Return)：
+$$
+R(\tau) = \sum_{t=1}^{T-1}\gamma^{t-1} r_t
+$$
+对于无明确终止状态的环境 $T=\infty$ ，通过折扣回报可忽略远期的激励，方便算法的实现。
+
+### 12.4 策略梯度方法
+
+由于环境状态转移和策略都具有随机性，同样的策略模型作用于同初始状态的同一环境，可能产生完全不同的轨迹序列 $\tau$。因而 RL 的目标是最大化期望回报 (Expected Return)，即寻找一组参数 $\theta$ 使得 $J(\pi_{\theta})$ 最大：
+$$
+J(\pi_{\theta}) = E[R(\tau)]\\
+\theta^* = \arg \max_{\theta}E_{\tau \sim p(\tau)}[R(\tau)]
+$$
+其中：$p(\tau)$ 代表轨迹 $\tau$ 的分布，由状态转移概率 $p'$ 和策略 $\pi(a|s)$ 决定。
+
+**找出最优化的策略使得回报 $J(\pi_{\theta})$ 最大**
+
+与有监督学习类似，需要求解期望回报 $J$ 对网络参数 $\theta$ 的偏导数，**并采用梯度上升算法更新网络参数。**
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

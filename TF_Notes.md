@@ -1,5 +1,21 @@
 # TF_Notes
 
+[google官网](https://tensorflow.google.cn/install)
+
+- [官网文档](https://tensorflow.google.cn/api_docs/python/tf/all_symbols)
+
+- [tensorflow中文版文档](https://www.w3cschool.cn/tensorflow_python/)
+
+- [devdocs](https://devdocs.io/tensorflow~2.4/)
+
+
+帮助形式查看：
+
+```python
+help(tf.cast)
+?tf.equal
+```
+
 ## 1.深度学习框架简介
 
 ### 1.1 Tensorflow
@@ -1196,7 +1212,7 @@ net(x, training=None)
 
 **VGG 系列**
 
-14年，ILSVRC14 亚军牛津大学 VGG 实验室相继提出 VGG 系列模型:
+14年，ILSVRC14 牛津大学 VGG 实验室相继提出 VGG 系列模型:
 
 - 卷积核 3×3，参数量少
 - 更小的池化层 2×2，s=2
